@@ -1,0 +1,6 @@
+{
+  "C_Cpp.default.includePath": [
+    "${env:ZVB_SDK_PATH}/include",
+    "${env:ZOS_PATH}/kernel_headers/sdcc/include",
+  ],
+}

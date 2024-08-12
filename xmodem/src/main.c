@@ -26,20 +26,9 @@
 
 static zos_err_t receive(const char* filename);
 static zos_err_t send(const char* filename);
-static void print(const char* buffer, int size);
-
-static void print(const char* buffer, int size) {
-    for(int i = 0; i < size; ++i) {
-        const char c = buffer[i];
-        switch(c) {
-            case 0x09:
-                printf("  ");
-                break;
-            default:
-                putchar(c);
-        }
-    }
-}
+static zos_err_t read_char(zos_dev_t dev, const char* c);
+static zos_err_t wait_for(zos_dev_t dev, const char c);
+static void print_usage(void);
 
 static zos_err_t read_char(zos_dev_t dev, const char* c) {
     uint16_t size = 1;
@@ -248,7 +237,7 @@ static zos_err_t send(const char* filename) {
     return ERR_SUCCESS;
 }
 
-void print_usage(void) {
+static void print_usage(void) {
     printf("Usage: xm.bin [s,r] [filename]\n\n");
     printf("Example:\n");
     printf("  xm.bin s file.txt\n\n");
