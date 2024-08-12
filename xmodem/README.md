@@ -58,3 +58,13 @@ Two possibilities to clean the resulted binaries:
     ```shell
     make clean
     ```
+
+
+## References
+
+The following links may be useful if attempting to write an XMODEM Implementation on your own.
+
+* [XMODEM Packet Structure](https://en.wikipedia.org/wiki/XMODEM#Packet_structure)
+* [XMODEM File Transfers](https://web.mit.edu/6.121/www/other/pcplot_man/pcplot14.htm)
+* [XMODEM Example in C](https://www.menie.org/georges/embedded/xmodem.html)
+* [XMODEM Example in Python](https://stackoverflow.com/questions/358471/xmodem-for-python)
