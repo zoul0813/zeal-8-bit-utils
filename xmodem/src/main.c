@@ -26,9 +26,6 @@
 
 static zos_err_t receive(const char* filename);
 static zos_err_t send(const char* filename);
-static zos_err_t read_char(zos_dev_t dev, const char* c);
-static zos_err_t wait_for(zos_dev_t dev, const char c);
-static void print_usage(void);
 
 static zos_err_t read_char(zos_dev_t dev, const char* c) {
     uint16_t size = 1;
@@ -65,19 +62,44 @@ static zos_err_t wait_for(zos_dev_t dev, const char c) {
 }
 
 static zos_err_t receive(const char* filename) {
+    char buffer[BUFFER_SIZE];
+    uint16_t size = 1;
+    uint16_t writeSize = 1;
+
     printf("Receive: %s\n", filename);
-    zos_dev_t uart = open("#SER0", O_RDWR);
-    /* Check if it was a success, abort else */
-    if (uart < 0) {
-        printf("Could not open #SER0");
-        return ERR_INVALID_FILEDEV;
+    zos_dev_t file = open(filename, O_WRONLY);
+    if (file < 0) {
+        printf("Could not open '%s'\n", filename);
+        return -file;
     }
 
-    zos_err_t err = ERR_SUCCESS;
+    zos_dev_t uart = open("#SER0", O_RDWR);
+    if (uart < 0) {
+        printf("Could not open #SER0");
+        return -uart;
+    }
+    printf("Starting download...\n");
 
-    char buffer[BUFFER_SIZE];
+    zos_err_t err = ERR_SUCCESS;
+    buffer[0] = NAK;
+    err = write(uart, buffer, &writeSize); // TODO: send a NAK to begin
+    if(err != ERR_SUCCESS) {
+        printf("Sending failed to acknowledge: %d\n", err);
+        return err;
+    }
+
+    printf("Ackowledged, sending data\n");
+
+    /**
+     * Transmit
+    */
+    uint8_t block = 0;
+    uint16_t bytes_sent = 0;
+    uint16_t filesize = 0;
+
     while(1) {
-        int size = BUFFER_SIZE - 1;
+
+
         err = read(uart, buffer, &size);
         if(err != ERR_SUCCESS) {
             printf("Error reading file: %d\n", size);
@@ -86,7 +108,7 @@ static zos_err_t receive(const char* filename) {
             break;
         }
         buffer[size] = 0;
-        printf("%s", buffer);
+        write(DEV_STDOUT, ".", &size);
     }
 
     /* Close the opened directory */
@@ -95,6 +117,11 @@ static zos_err_t receive(const char* filename) {
 }
 
 static zos_err_t send(const char* filename) {
+    char buffer[BUFFER_SIZE];
+    uint16_t size = 1;
+    uint16_t writeSize = 1;
+
+    printf("Sending: %s\n", filename);
     zos_dev_t file = open(filename, O_RDONLY);
     if (file < 0) {
         printf("Could not open '%s'\n", filename);
@@ -117,17 +144,14 @@ static zos_err_t send(const char* filename) {
     }
 
     printf("Acknowledged, sending data\n");
+
     /**
      * Transmit
     */
-    char buffer[BUFFER_SIZE];
     uint8_t block = 0;
     uint16_t bytes_sent = 0;
     uint16_t filesize = 0;
-    uint16_t _written = 3;
     while(1) {
-        uint16_t size = 1;
-        uint16_t writeSize = 1;
         write(DEV_STDOUT, ".", &writeSize);
         size = BUFFER_SIZE;
         err = read(file, buffer, &size);
@@ -139,23 +163,23 @@ static zos_err_t send(const char* filename) {
 
         const char header[3] = { SOH, ++block, ~block };
         current_block:
-        _written = 3;
-        err = write(uart, header, &_written);
+        writeSize = 3;
+        err = write(uart, header, &writeSize);
         if(err != ERR_SUCCESS) {
             printf("UART Error [SOH]: %d", err);
             break;
         }
-        bytes_sent += _written;
+        bytes_sent += writeSize;
         char checksum = 0;
         for(uint8_t i = 0; i < BUFFER_SIZE; ++i) {
             char b[1] = { SUB };
             if(i < size) {
                 b[0] = buffer[i];
-                checksum += buffer[i];
                 ++bytes_sent;
             }
-            _written = 1;
-            err = write(uart, b, &_written);
+            checksum += b[0];
+            writeSize = 1;
+            err = write(uart, b, &writeSize);
             if(err != ERR_SUCCESS) {
                 printf("UART Error [Data]: %d", err);
                 break;
@@ -163,17 +187,13 @@ static zos_err_t send(const char* filename) {
         }
 
         const char tail[1] = { checksum % 256 };
-        _written = 1;
-        err = write(uart, tail, &_written);
+        writeSize = 1;
+        err = write(uart, tail, &writeSize);
         if(err != ERR_SUCCESS) {
             printf("UART Error: %d", err);
             break;
         }
-        bytes_sent += _written;
-
-        if(size < BUFFER_SIZE-1) {
-            break;
-        }
+        bytes_sent += writeSize;
 
         if(block % 40 == 0) printf("\n");
 
@@ -203,6 +223,9 @@ static zos_err_t send(const char* filename) {
             }
         }
         next_block:
+        if(size < BUFFER_SIZE-1) {
+            break;
+        }
     }
 
     /**
@@ -212,8 +235,8 @@ static zos_err_t send(const char* filename) {
 
     while(1) {
         buffer[0] = EOT;
-        _written = 1;
-        err = write(uart, buffer, &_written);
+        writeSize = 1;
+        err = write(uart, buffer, &writeSize);
         if(err != ERR_SUCCESS) {
             printf("UART Error [EOT]: %d", err);
         }
@@ -237,7 +260,7 @@ static zos_err_t send(const char* filename) {
     return ERR_SUCCESS;
 }
 
-static void print_usage(void) {
+void print_usage(void) {
     printf("Usage: xm.bin [s,r] [filename]\n\n");
     printf("Example:\n");
     printf("  xm.bin s file.txt\n\n");
