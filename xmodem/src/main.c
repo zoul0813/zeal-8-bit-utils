@@ -15,6 +15,9 @@
 
 // + 1 for NUL terminator
 #define BUFFER_SIZE 128
+#define HEAD_SIZE 3
+#define TAIL_SIZE 1
+#define PACKET_SIZE 132
 
 #define NUL     0x00
 #define SOH     0x01
@@ -62,14 +65,14 @@ static zos_err_t wait_for(zos_dev_t dev, const char c) {
 }
 
 static zos_err_t receive(const char* filename) {
-    char buffer[BUFFER_SIZE];
+    char buffer[PACKET_SIZE]; // SOH, Block, ~Block, Buffer, Checksum
     uint16_t size = 1;
     uint16_t writeSize = 1;
 
     printf("Receive: %s\n", filename);
-    zos_dev_t file = open(filename, O_WRONLY);
+    zos_dev_t file = open(filename, O_WRONLY | O_CREAT | O_TRUNC);
     if (file < 0) {
-        printf("Could not open '%s'\n", filename);
+        printf("Could not open '%s' [%d]\n", filename, -file);
         return -file;
     }
 
@@ -80,6 +83,8 @@ static zos_err_t receive(const char* filename) {
     }
     printf("Starting download...\n");
 
+    ioctl(uart, SERIAL_SET_TIMEOUT, (void*) 1);
+
     zos_err_t err = ERR_SUCCESS;
     buffer[0] = NAK;
     err = write(uart, buffer, &writeSize); // TODO: send a NAK to begin
@@ -88,7 +93,7 @@ static zos_err_t receive(const char* filename) {
         return err;
     }
 
-    printf("Ackowledged, sending data\n");
+    printf("Ackowledged, receiving data\n");
 
     /**
      * Transmit
@@ -96,22 +101,43 @@ static zos_err_t receive(const char* filename) {
     uint8_t block = 0;
     uint16_t bytes_sent = 0;
     uint16_t filesize = 0;
-
     while(1) {
-
-
+        ++block;
+        writeSize = 1;
+        write(DEV_STDOUT, ".", &writeSize);
+        size = PACKET_SIZE; // SOH, Block, ~Block, Buffer, Checksum
         err = read(uart, buffer, &size);
         if(err != ERR_SUCCESS) {
-            printf("Error reading file: %d\n", size);
+            printf("Error reading uart: %d\n", size);
             return err;
-        } else if(size == 0) {
+        } // else, no data received?
+        filesize += size;
+
+        char acknak[1] = {ACK};
+        if(buffer[1] != block && buffer[2] != ~block) {
+            // block alignment is incorrect...
+            acknak[0] = NAK;
+            writeSize = 1;
+            write(uart, acknak, &writeSize);
+        }
+
+        err = write(file, buffer, &size);
+        if(err != ERR_SUCCESS) {
+            printf("File Error: %d", err);
             break;
         }
-        buffer[size] = 0;
-        write(DEV_STDOUT, ".", &size);
+
+        writeSize = 1;
+        write(uart, acknak, &writeSize);
+        if(err != ERR_SUCCESS) {
+            printf("UART Error: %d", err);
+            break;
+        }
     }
 
     /* Close the opened directory */
+    ioctl(uart, SERIAL_SET_TIMEOUT, (void*) 0);
+    close(file);
     close(uart);
     return ERR_SUCCESS;
 }
@@ -152,6 +178,7 @@ static zos_err_t send(const char* filename) {
     uint16_t bytes_sent = 0;
     uint16_t filesize = 0;
     while(1) {
+        writeSize = 1;
         write(DEV_STDOUT, ".", &writeSize);
         size = BUFFER_SIZE;
         err = read(file, buffer, &size);
